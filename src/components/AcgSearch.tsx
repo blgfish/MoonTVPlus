@@ -2,7 +2,7 @@
 'use client';
 
 import { AlertCircle, Download, ExternalLink, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 
 import Toast, { ToastProps } from '@/components/Toast';
 
@@ -35,17 +35,23 @@ export default function AcgSearch({
   onError,
 }: AcgSearchProps) {
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<AcgSearchResult | null>(null);
+  const [allItems, setAllItems] = useState<AcgSearchItem[]>([]); // 所有加载的项目
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [showNameDialog, setShowNameDialog] = useState(false);
   const [selectedItem, setSelectedItem] = useState<AcgSearchItem | null>(null);
   const [customName, setCustomName] = useState('');
   const [toast, setToast] = useState<ToastProps | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const isLoadingMoreRef = useRef(false);
 
   // 执行搜索
-  const performSearch = async (page: number) => {
+  const performSearch = async (page: number, isLoadMore = false) => {
+    if (isLoadingMoreRef.current) return;
+
+    isLoadingMoreRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -67,7 +73,19 @@ export default function AcgSearch({
       }
 
       const data: AcgSearchResult = await response.json();
-      setResults(data);
+
+      if (isLoadMore) {
+        // 追加新数据
+        setAllItems(prev => [...prev, ...data.items]);
+        // 如果当前页没有结果，说明没有更多了
+        setHasMore(data.items.length > 0);
+      } else {
+        // 新搜索，重置数据
+        setAllItems(data.items);
+        // 如果第一页有结果，假设可能还有更多
+        setHasMore(data.items.length > 0);
+      }
+
       setCurrentPage(page);
     } catch (err: any) {
       const errorMsg = err.message || '搜索失败，请稍后重试';
@@ -75,6 +93,7 @@ export default function AcgSearch({
       onError?.(errorMsg);
     } finally {
       setLoading(false);
+      isLoadingMoreRef.current = false;
     }
   };
 
@@ -89,14 +108,45 @@ export default function AcgSearch({
       return;
     }
 
-    performSearch(1);
+    // 重置状态并开始新搜索
+    setAllItems([]);
+    setCurrentPage(1);
+    setHasMore(true);
+    performSearch(1, false);
   }, [triggerSearch]);
 
-  // 处理页码变化
-  const handlePageChange = (newPage: number) => {
-    if (newPage < 1 || loading) return;
-    performSearch(newPage);
-  };
+  // 加载更多数据
+  const loadMore = useCallback(() => {
+    if (!loading && hasMore && !isLoadingMoreRef.current) {
+      performSearch(currentPage + 1, true);
+    }
+  }, [loading, hasMore, currentPage]);
+
+  // 使用 Intersection Observer 监听滚动到底部
+  useEffect(() => {
+    const element = loadMoreRef.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const target = entries[0];
+        if (target.isIntersecting) {
+          loadMore();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '100px',
+        threshold: 0.1,
+      }
+    );
+
+    observer.observe(element);
+
+    return () => {
+      observer.unobserve(element);
+    };
+  }, [loadMore]);
 
   // 打开命名弹窗
   const handleOpenDownloadDialog = (item: AcgSearchItem) => {
@@ -150,7 +200,7 @@ export default function AcgSearch({
     }
   };
 
-  if (loading && !results) {
+  if (loading && allItems.length === 0) {
     return (
       <div className='flex items-center justify-center py-12'>
         <div className='text-center'>
@@ -174,7 +224,7 @@ export default function AcgSearch({
     );
   }
 
-  if (!results || results.total === 0) {
+  if (allItems.length === 0) {
     return (
       <div className='flex items-center justify-center py-12'>
         <div className='text-center'>
@@ -189,35 +239,9 @@ export default function AcgSearch({
 
   return (
     <div className='space-y-6'>
-      {/* 搜索结果统计 */}
-      <div className='flex items-center justify-between'>
-        <div className='text-sm text-gray-600 dark:text-gray-400'>
-          第 <span className='font-semibold text-green-600 dark:text-green-400'>{currentPage}</span> 页，
-          共 <span className='font-semibold text-green-600 dark:text-green-400'>{results.total}</span> 个结果
-        </div>
-
-        {/* 分页按钮 */}
-        <div className='flex gap-2'>
-          <button
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1 || loading}
-            className='px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-          >
-            上一页
-          </button>
-          <button
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={loading || results.total === 0}
-            className='px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-          >
-            下一页
-          </button>
-        </div>
-      </div>
-
       {/* 结果列表 */}
       <div className='space-y-3'>
-        {results.items.map((item) => (
+        {allItems.map((item) => (
           <div
             key={item.guid}
             className='p-4 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-green-400 dark:hover:border-green-600 transition-colors'
@@ -281,6 +305,18 @@ export default function AcgSearch({
           </div>
         ))}
       </div>
+
+      {/* 加载更多指示器 */}
+      {hasMore && (
+        <div ref={loadMoreRef} className='flex items-center justify-center py-8'>
+          <div className='text-center'>
+            <Loader2 className='mx-auto h-6 w-6 animate-spin text-green-600 dark:text-green-400' />
+            <p className='mt-2 text-sm text-gray-600 dark:text-gray-400'>
+              加载更多...
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 命名弹窗 */}
       {showNameDialog && (
