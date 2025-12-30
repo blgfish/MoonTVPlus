@@ -182,6 +182,7 @@ export class DbManager {
     oidcSub?: string;
     enabledApis?: string[];
     created_at: number;
+    playrecord_migrated?: boolean;
   } | null> {
     if (typeof (this.storage as any).getUserInfoV2 === 'function') {
       return (this.storage as any).getUserInfoV2(userName);
@@ -257,6 +258,13 @@ export class DbManager {
       return (this.storage as any).getUsersByTag(tagName);
     }
     return [];
+  }
+
+  // ---------- 播放记录迁移 ----------
+  async migratePlayRecords(userName: string): Promise<void> {
+    if (typeof (this.storage as any).migratePlayRecords === 'function') {
+      await (this.storage as any).migratePlayRecords(userName);
+    }
   }
 
   // ---------- 数据迁移 ----------

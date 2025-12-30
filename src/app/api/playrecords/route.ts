@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
       if (userInfoV2.banned) {
         return NextResponse.json({ error: '用户已被封禁' }, { status: 401 });
       }
+
+      // 检查播放记录迁移标识，没有迁移标识时执行迁移
+      if (!userInfoV2.playrecord_migrated) {
+        console.log(`用户 ${authInfo.username} 播放记录未迁移，开始执行迁移...`);
+        await db.migratePlayRecords(authInfo.username);
+      }
     }
 
     const records = await db.getAllPlayRecords(authInfo.username);
@@ -91,6 +97,11 @@ export async function POST(request: NextRequest) {
     } as PlayRecord;
 
     await db.savePlayRecord(authInfo.username, source, id, finalRecord);
+
+    // 异步清理旧的播放记录（不阻塞响应）
+    (db as any).storage.cleanupOldPlayRecords(authInfo.username).catch((err: Error) => {
+      console.error('异步清理播放记录失败:', err);
+    });
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {

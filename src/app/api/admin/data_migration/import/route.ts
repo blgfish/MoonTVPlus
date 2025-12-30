@@ -201,6 +201,13 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+
+      // 标记播放记录已迁移（新导入的数据直接使用hash结构）
+      const storage = (db as any).storage;
+      if (storage && typeof storage.client?.hSet === 'function') {
+        const userInfoKey = `user:${username}:info`;
+        await storage.client.hSet(userInfoKey, 'playrecord_migrated', 'true');
+      }
     }
 
     return NextResponse.json({
